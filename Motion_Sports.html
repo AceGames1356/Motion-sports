@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101a31">
+<title>Motion Sports</title>
+<style>
+:root{color-scheme:dark;--bg:#101a31;--panel:#1b2a49;--text:#f7f9ff;--muted:#b8c5df;--accent:#ff9d36;--cyan:#4dd8e8}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);overflow-x:hidden}
+button,input{font:inherit}
+button{border:0;border-radius:15px;padding:13px 18px;background:linear-gradient(135deg,#ffb347,#ff762e);color:#21152a;font-weight:850;cursor:pointer;box-shadow:0 5px 0 #a94b24;touch-action:manipulation}
+button:active{transform:translateY(3px);box-shadow:0 2px 0 #a94b24}
+button.secondary{background:#2a3c60;color:#fff;box-shadow:0 5px 0 #17233c}
+button:disabled{opacity:.5}
+input{width:9rem;padding:12px;border-radius:13px;border:2px solid #6c83ad;background:#0e1830;color:white;font-size:1.7rem;text-align:center;letter-spacing:.3rem}
+.panel{width:min(94vw,680px);margin:0 auto;padding:clamp(18px,4vw,34px);text-align:center}
+h1{font-size:clamp(2rem,7vw,3.6rem);margin:.3rem 0;color:#fff;text-shadow:0 4px 0 #293c65}
+h2{margin:.2rem 0 1rem}
+p{color:var(--muted);line-height:1.5}
+.small{font-size:.9rem;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px;margin:22px 0}
+.sport{min-height:115px;background:linear-gradient(145deg,#304a73,#1a2b4b);color:#fff;box-shadow:0 5px 0 #101c34;border:2px solid #55729e}
+.sport span{display:block;font-size:2rem;margin-bottom:5px}
+.sport.selected{outline:3px solid var(--cyan);background:linear-gradient(145deg,#276477,#1a4058)}
+#display{position:fixed;inset:0;background:#101a31}
+#game{width:100%;height:100%;display:block}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;padding:20px}
+.overlay .hud{align-self:flex-start;width:100%;display:flex;justify-content:space-between;gap:12px;font-weight:900;text-shadow:0 2px 5px #000;font-size:clamp(1rem,3vw,1.8rem)}
+#roomLabel{position:absolute;left:50%;top:22%;transform:translateX(-50%);text-align:center;font-weight:900;font-size:clamp(1.5rem,5vw,3rem);text-shadow:0 3px 8px #000;pointer-events:none}
+#notice{position:absolute;left:50%;top:43%;transform:translate(-50%,-50%);font-size:clamp(1.2rem,4vw,2.4rem);font-weight:950;text-align:center;text-shadow:0 3px 8px #000;width:90%;pointer-events:none}
+#controller{max-width:520px}
+#angle{font-size:4rem;font-weight:950;color:var(--accent);margin:5px}
+#sensorStatus{padding:12px;border-radius:12px;background:#263957;margin:15px 0;color:#fff}
+#tapShoot{width:min(90%,330px);min-height:76px;font-size:1.2rem}
+#err{color:#ff9b9b;min-height:1.5em}
+#displaySetup{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(140deg,#142441,#203d60);overflow:auto}
+.hidden{display:none!important}
+.row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+@media(orientation:portrait){#roomLabel{top:27%}}
+</style>
+</head>
+<body>
+<section id="home" class="panel">
+  <h1>🏆 Motion Sports</h1>
+  <p>Pick a device to get started.</p>
+  <div class="row">
+    <button id="asDisplay">📺 Big-screen display</button>
+    <button class="secondary" id="asController">📱 Phone controller</button>
+  </div>
+  <p class="small">Play with motion controls or use the on-screen button. Best on iPhone Safari over HTTPS.</p>
+</section>
+
+<section id="controller" class="panel hidden">
+  <h2>📱 Motion Controller</h2>
+  <div id="pair">
+    <p>Enter the 4-digit room code from the big screen.</p>
+    <input id="code" inputmode="numeric" maxlength="4" placeholder="0000" aria-label="Room code">
+    <p><button id="connect">Connect phone</button></p>
+  </div>
+  <div id="pad" class="hidden">
+    <div id="sportName">🏀 Basketball</div>
+    <div id="angle">55°</div>
+    <p>Tilt to aim. Flick your phone to play!</p>
+    <div id="sensorStatus">Checking motion controls…</div>
+    <button id="tapShoot">TAP TO PLAY</button>
+    <p class="small">If motion controls are blocked, the button still works.</p>
+  </div>
+  <p id="err"></p>
+  <p><button class="secondary" id="backHome">Back</button></p>
+</section>
+
+<section id="display" class="hidden">
+  <canvas id="game"></canvas>
+  <div class="overlay"><div class="hud"><span id="hudSport">MOTION SPORTS</span><span id="hudScore">Score 0</span><span id="hudShots">Attempts 10</span></div></div>
+  <div id="roomLabel"></div><div id="notice"></div>
+  <div id="displaySetup">
+    <div class="panel">
+      <h1>🏆 Motion Sports</h1>
+      <p>Choose your sport</p>
+      <div class="grid" id="sports">
+        <button class="sport selected" data-sport="basketball"><span>🏀</span>Basketball</button>
+        <button class="sport" data-sport="soccer"><span>⚽</span>Soccer</button>
+        <button class="sport" data-sport="tennis"><span>🎾</span>Tennis</button>
+        <button class="sport" data-sport="volleyball"><span>🏐</span>Volleyball</button>
+        <button class="sport" data-sport="bowling"><span>🎳</span>Bowling</button>
+        <button class="sport" data-sport="badminton"><span>🏸</span>Badminton</button>
+      </div>
+      <button id="startGame">Start game</button>
+      <p class="small">Open this same page on your phone and choose Controller.</p>
+      <p id="roomCodeSetup" class="small"></p>
+    </div>
+  </div>
+</section>
+
+<script>
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const SPORTS={
+ basketball:{name:"Basketball",emoji:"🏀",target:"hoop",color:"#f28a32",aim:55},
+ soccer:{name:"Soccer",emoji:"⚽",target:"goal",color:"#f4f6fb",aim:50},
+ tennis:{name:"Tennis",emoji:"🎾",target:"court",color:"#c9ed48",aim:48},
+ volleyball:{name:"Volleyball",emoji:"🏐",target:"net",color:"#f5e6bd",aim:55},
+ bowling:{name:"Bowling",emoji:"🎳",target:"pins",color:"#e7eaf3",aim:50},
+ badminton:{name:"Badminton",emoji:"🏸",target:"net",color:"#f8f5e8",aim:50}
+};
+let selectedSport="basketball",roomApi=null,screenCode="",gameStarted=false;
+let score=0,attempts=10,best=0,ball=null,gameOver=false,noticeTimer=0,message="",aim=55;
+let sensorState="not-started",motionEnabled=false,orientationEnabled=false;
+let beta=50,gestureStart=0,peakMotion=0,cooldown=0,shotCount=0,lastSend=0,lastFeedback=null;
+const freshBall=()=>({active:false,x:.8,y:1.5,vx:0,vy:0,t:0,scored:false});
+ball=freshBall();
+
+function show(view){
+ $("home").classList.toggle("hidden",view!=="home");
+ $("controller").classList.toggle("hidden",view!=="controller");
+ $("display").classList.toggle("hidden",view!=="display");
+}
+$("asDisplay").onclick=()=>{show("display");setupDisplay()};
+$("asController").onclick=()=>show("controller");
+$("backHome").onclick=()=>show("home");
+
+async function joinRoom(code){
+ try{
+  if(window.claude&&typeof window.claude.use==="function"){
+   const api=await window.claude.use("room");
+   if(api){await api.join("motionsports-"+code);return api;}
+  }
+ }catch(e){console.warn("Room connection:",e)}
+ return null;
+}
+function setupDisplay(){
+ screenCode=String(1000+Math.floor(Math.random()*9000));
+ $("roomCodeSetup").textContent="Room code: "+screenCode;
+ $("roomLabel").textContent="ROOM "+screenCode;
+ $("displaySetup").classList.remove("hidden");
+ $("hudSport").textContent="MOTION SPORTS";
+}
+$("sports").addEventListener("click",e=>{
+ const b=e.target.closest("[data-sport]");if(!b)return;
+ selectedSport=b.dataset.sport;
+ document.querySelectorAll(".sport").forEach(x=>x.classList.toggle("selected",x===b));
+});
+$("startGame").onclick=async()=>{
+ $("displaySetup").classList.add("hidden");
+ $("roomLabel").textContent="ROOM "+screenCode+"  ·  "+SPORTS[selectedSport].name;
+ score=0;attempts=10;gameOver=false;ball=freshBall();aim=SPORTS[selectedSport].aim;gameStarted=true;
+ $("hudSport").textContent=SPORTS[selectedSport].emoji+" "+SPORTS[selectedSport].name;
+ updateHud();show("display");
+ roomApi=await joinRoom(screenCode);
+ if(!roomApi)showNotice("Local play ready · room connection unavailable",3);
+ else{
+  try{
+   roomApi.presence({role:"screen",sport:selectedSport,fb:"Ready!",fbn:0,score,attempts});
+   roomApi.onPeers(()=>{
+    try{
+     const phone=roomApi.peers().filter(p=>p.presence.role==="pad").sort((a,b)=>b.updatedAt-a.updatedAt)[0];
+     if(!phone)return;
+     const state=phone.presence;
+     if(state.sport&&state.sport!==selectedSport)return;
+     if(typeof state.a==="number")aim=clamp(state.a,25,75);
+     if(typeof state.n==="number"&&state.n>shotCount){
+      shotCount=state.n;
+      shoot(state.p,state.sa);
+     }
+    }catch(e){console.warn("Controller update:",e)}
+   });
+  }catch(e){console.warn("Room setup:",e)}
+ }
+ startLoop();
+};
+function updateHud(){$("hudScore").textContent="Score "+score;$("hudShots").textContent="Attempts "+attempts}
+function showNotice(t,secs=2){message=t;noticeTimer=secs;$("notice").textContent=t}
+function sendFeedback(t){showNotice(t,2);if(roomApi)try{roomApi.presence({role:"screen",fb:t,fbn:Date.now(),score,attempts,sport:selectedSport})}catch(e){}}
+
+function shoot(power,angleValue){
+ if(!gameStarted)return;
+ if(gameOver){score=0;attempts=10;gameOver=false;ball=freshBall();updateHud();sendFeedback("New round!");return}
+ if(ball.active||attempts<=0)return;
+ const spec=SPORTS[selectedSport],a=clamp(Number(angleValue)||spec.aim,25,75)*Math.PI/180;
+ const p=clamp(Number(power)||.55,0,1);
+ const speed=selectedSport==="bowling"?7.5+5*p:8+8*p;
+ ball={active:true,x:.8,y:1.35,vx:speed*Math.cos(a),vy:speed*Math.sin(a),t:0,scored:false};
+ attempts--;updateHud();
+}
+function updateBall(dt){
+ if(!ball.active)return;
+ const oldY=ball.y;
+ const gravity=selectedSport==="volleyball"?8.8:10.5;
+ ball.vy-=gravity*dt;ball.x+=ball.vx*dt;ball.y+=ball.vy*dt;ball.t+=dt;
+ const targetX=selectedSport==="bowling"?7.6:7.2;
+ if(!ball.scored&&ball.x>=targetX){
+  const heightOK=selectedSport==="bowling"?ball.y<1.2&&ball.y>.05:
+   selectedSport==="soccer"?ball.y>1.0&&ball.y<3.5:
+   selectedSport==="volleyball"||selectedSport==="badminton"?ball.y>1.4&&ball.y<3.3:
+   ball.y>1.5&&ball.y<4.3;
+  if(heightOK){ball.scored=true;const points=selectedSport==="basketball"?(Math.abs(ball.y-3)<.5?3:2):selectedSport==="bowling"?10:selectedSport==="tennis"?15:10;score+=points;sendFeedback(["NICE SHOT!","PERFECT!","LET'S GO!"][Math.floor(Math.random()*3)]+" +"+points);updateHud()}
+  else sendFeedback("Just missed! Try a different angle");
+ }
+ if(ball.y<.08||ball.x>9||ball.t>3.5){
+  ball.active=false;
+  if(attempts===0){gameOver=true;best=Math.max(best,score);sendFeedback("ROUND OVER · "+score+" POINTS · Flick to play again",4)}
+ }
+}
+let canvas,ctx,lastFrame=0,raf=0;
+function resizeCanvas(){if(!canvas)return;const d=Math.min(devicePixelRatio||1,2);canvas.width=Math.floor(innerWidth*d);canvas.height=Math.floor(innerHeight*d);ctx.setTransform(d,0,0,d,0,0)}
+function roundedRect(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r)}
+function drawCourt(w,h){
+ const sky=ctx.createLinearGradient(0,0,0,h);sky.addColorStop(0,"#70c9ee");sky.addColorStop(.58,"#b8e6ed");sky.addColorStop(.59,"#347b66");sky.addColorStop(1,"#164b46");ctx.fillStyle=sky;ctx.fillRect(0,0,w,h);
+ // distant stadium
+ ctx.fillStyle="#31547a";ctx.beginPath();ctx.moveTo(0,h*.56);ctx.lineTo(0,h*.34);ctx.quadraticCurveTo(w*.5,h*.17,w,h*.34);ctx.lineTo(w,h*.56);ctx.fill();
+ for(let i=0;i<24;i++){ctx.fillStyle=i%2?"#e7b86b":"#f3d6a0";ctx.beginPath();ctx.arc((i+.5)*w/24,h*(.39+(i%3)*.025),Math.max(2,w*.003),0,Math.PI*2);ctx.fill()}
+ const floor=ctx.createLinearGradient(0,h*.56,0,h);floor.addColorStop(0,"#e4b66e");floor.addColorStop(1,"#a76c43");ctx.fillStyle=floor;ctx.fillRect(0,h*.56,w,h*.44);
+ ctx.strokeStyle="rgba(255,255,255,.65)";ctx.lineWidth=3;ctx.strokeRect(w*.06,h*.62,w*.88,h*.32);
+ ctx.fillStyle="rgba(255,255,255,.12)";ctx.beginPath();ctx.ellipse(w*.5,h*.82,w*.18,h*.08,0,0,Math.PI*2);ctx.fill();
+}
+function drawTarget(w,h){
+ const x=w*.79,y=h*.48;
+ ctx.save();ctx.lineCap="round";ctx.lineJoin="round";
+ if(selectedSport==="basketball"){
+  ctx.fillStyle="#eaf3ff";roundedRect(x-w*.045,y-h*.13,w*.09,h*.12,8);ctx.fill();ctx.strokeStyle="#fff";ctx.lineWidth=5;ctx.strokeRect(x-w*.045,y-h*.13,w*.09,h*.12);
+  ctx.strokeStyle="#ff6b26";ctx.lineWidth=8;ctx.beginPath();ctx.ellipse(x,y,w*.055,h*.018,0,0,Math.PI*2);ctx.stroke();
+  ctx.strokeStyle="rgba(255,255,255,.8)";ctx.lineWidth=2;for(let i=-2;i<=2;i++){ctx.beginPath();ctx.moveTo(x+i*w*.018,y);ctx.lineTo(x+i*w*.012,y+h*.09);ctx.stroke()}
+ }else if(selectedSport==="soccer"){
+  ctx.strokeStyle="#fff";ctx.lineWidth=8;ctx.strokeRect(x-w*.09,y-h*.14,w*.18,h*.2);ctx.strokeStyle="rgba(255,255,255,.45)";ctx.lineWidth=2;for(let i=1;i<5;i++){ctx.beginPath();ctx.moveTo(x-w*.09+i*w*.036,y-h*.14);ctx.lineTo(x-w*.09+i*w*.036,y+h*.06);ctx.stroke()}
+ }else if(selectedSport==="tennis"||selectedSport==="volleyball"||selectedSport==="badminton"){
+  ctx.strokeStyle="#fff";ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(x,y-h*.15);ctx.lineTo(x,y+h*.08);ctx.stroke();ctx.strokeStyle="#e9f4ff";ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x-w*.12,y-h*.03);ctx.lineTo(x+w*.12,y-h*.03);ctx.stroke();for(let i=0;i<9;i++){ctx.beginPath();ctx.moveTo(x-w*.12+i*w*.03,y-h*.03);ctx.lineTo(x-w*.12+i*w*.03,y+h*.06);ctx.stroke()}
+ }else{
+  for(let i=0;i<4;i++){const px=x+(i-1.5)*w*.035,py=y+h*.05-(i%2)*h*.035;ctx.fillStyle="#fff";ctx.beginPath();ctx.ellipse(px,py,w*.012,h*.035,0,0,Math.PI*2);ctx.fill();ctx.fillStyle="#e84c4c";ctx.fillRect(px-w*.006,py-h*.015,w*.012,h*.03)}
+ }
+ ctx.restore();
+}
+function drawPlayer(w,h){
+ const x=w*.14,y=h*.69;
+ ctx.save();ctx.fillStyle="rgba(0,0,0,.22)";ctx.beginPath();ctx.ellipse(x,y+h*.11,w*.07,h*.018,0,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle="#285fbd";roundedRect(x-w*.035,y-h*.13,w*.07,h*.16,18);ctx.fill();
+ ctx.fillStyle="#f2c49a";ctx.beginPath();ctx.arc(x,y-h*.18,w*.027,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle="#172b4a";ctx.fillRect(x-w*.032,y+h*.015,w*.025,h*.1);ctx.fillRect(x+w*.008,y+h*.015,w*.025,h*.1);
+ ctx.strokeStyle="#f2c49a";ctx.lineWidth=Math.max(7,w*.012);ctx.beginPath();ctx.moveTo(x-w*.025,y-h*.09);ctx.lineTo(x-w*.075,y-h*.02);ctx.moveTo(x+w*.025,y-h*.09);ctx.lineTo(x+w*.07,y-h*.03);ctx.stroke();ctx.restore();
+}
+function drawBall(w,h){
+ if(!ball.active)return;
+ const x=w*(.08+ball.x/9.5*.84),y=h*(.78-ball.y/7*.68),r=Math.max(11,w*.018);
+ ctx.save();ctx.fillStyle="rgba(0,0,0,.25)";ctx.beginPath();ctx.ellipse(x+4,y+r*1.6,r*1.2,r*.35,0,0,Math.PI*2);ctx.fill();
+ const grad=ctx.createRadialGradient(x-r*.35,y-r*.4,r*.1,x,y,r);grad.addColorStop(0,"#fff");grad.addColorStop(.25,SPORTS[selectedSport].color);grad.addColorStop(1,"#793d2d");
+ ctx.fillStyle=grad;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.strokeStyle="rgba(30,30,40,.55)";ctx.lineWidth=2;ctx.stroke();
+ ctx.strokeStyle="rgba(255,255,255,.7)";ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,r*.72,-1.2,1.2);ctx.stroke();ctx.restore();
+}
+function render(){
+ const w=innerWidth,h=innerHeight;drawCourt(w,h);drawTarget(w,h);drawPlayer(w,h);drawBall(w,h);
+}
+function loop(now){
+ if(!gameStarted)return;const dt=Math.min(.04,(now-lastFrame)/1000||0);lastFrame=now;updateBall(dt);if(noticeTimer>0){noticeTimer-=dt;if(noticeTimer<=0)$("notice").textContent=""}render();raf=requestAnimationFrame(loop);
+}
+function startLoop(){cancelAnimationFrame(raf);canvas=$("game");ctx=canvas.getContext("2d");resizeCanvas();lastFrame=performance.now();loop(lastFrame)}
+addEventListener("resize",()=>{if(!$("display").classList.contains("hidden"))resizeCanvas()});
+addEventListener("keydown",e=>{if(e.code==="Space"){e.preventDefault();shoot(.6,aim)}if(e.key==="ArrowUp")aim=clamp(aim+2,25,75);if(e.key==="ArrowDown")aim=clamp(aim-2,25,75)});
+
+// Phone controller: request iOS permissions directly inside the Connect button gesture.
+function setSensorStatus(text){$("sensorStatus").textContent=text}
+async function requestSensorAccess(){
+ let motionOK=false,orientationOK=false,errors=[];
+ if(!window.isSecureContext)errors.push("Sensors need HTTPS.");
+ if(typeof DeviceMotionEvent==="undefined"&&typeof DeviceOrientationEvent==="undefined")errors.push("This browser does not support motion sensors.");
+ if(typeof DeviceMotionEvent!=="undefined"){
+  if(typeof DeviceMotionEvent.requestPermission==="function"){
+   try{motionOK=(await DeviceMotionEvent.requestPermission())==="granted";if(!motionOK)errors.push("Motion permission was denied.");}
+   catch(e){errors.push("Motion permission request failed: "+(e.message||"unknown error"))}
+  }else motionOK=true;
+ }
+ if(typeof DeviceOrientationEvent!=="undefined"){
+  if(typeof DeviceOrientationEvent.requestPermission==="function"){
+   try{orientationOK=(await DeviceOrientationEvent.requestPermission())==="granted";if(!orientationOK)errors.push("Tilt permission was denied.");}
+   catch(e){errors.push("Tilt permission request failed: "+(e.message||"unknown error"))}
+  }else orientationOK=true;
+ }
+ motionEnabled=motionOK;orientationEnabled=orientationOK;
+ if(orientationEnabled)addEventListener("deviceorientation",onOrientation,{passive:true});
+ if(motionEnabled)addEventListener("devicemotion",onMotion,{passive:true});
+ if(motionEnabled&&orientationEnabled){sensorState="ready";setSensorStatus("✓ Motion controls ready. Tilt and flick to play.");}
+ else if(motionEnabled||orientationEnabled){sensorState="partial";setSensorStatus("Some sensors are unavailable. Tap-to-play is always available.");}
+ else{sensorState="denied";setSensorStatus("Motion access is off. Use the TAP TO PLAY button, or enable Motion & Orientation Access in iPhone Settings → Safari.");}
+}
+function onOrientation(e){
+ if(e.beta==null||!Number.isFinite(e.beta))return;
+ beta=e.beta;aim=clamp(40+clamp(beta,0,90)/90*30,25,75);$("angle").textContent=Math.round(aim)+"°";
+ const now=performance.now();
+ if(roomApi&&now-lastSend>100){lastSend=now;try{roomApi.presence({role:"pad",a:Math.round(aim),sport:selectedSport})}catch(e){}}
+}
+function onMotion(e){
+ const a=e.acceleration,g=e.accelerationIncludingGravity;let magnitude=null;
+ if(a&&a.x!=null)magnitude=Math.hypot(a.x||0,a.y||0,a.z||0);
+ else if(g&&g.x!=null)magnitude=Math.abs(Math.hypot(g.x||0,g.y||0,g.z||0)-9.81);
+ if(magnitude==null||!Number.isFinite(magnitude))return;
+ const now=performance.now();
+ if(!gestureStart&&magnitude>12&&now>cooldown){gestureStart=now;peakMotion=magnitude}
+ else if(gestureStart){peakMotion=Math.max(peakMotion,magnitude);if(now-gestureStart>140){gestureStart=0;cooldown=now+1100;sendShot(peakMotion,aim)}}
+}
+function sendShot(peak,angleValue){
+ const power=clamp((peak-8)/30,.15,1);shotCount++;
+ if(roomApi)try{roomApi.presence({role:"pad",sa:Math.round(angleValue),p:+power.toFixed(2),n:shotCount,sport:selectedSport})}catch(e){}
+ $("tapShoot").textContent="SHOT SENT!";
+ setTimeout(()=>{$("tapShoot").textContent="TAP TO PLAY"},650);
+}
+$("connect").onclick=async()=>{
+ const code=$("code").value.trim();
+ if(!/^\d{4}$/.test(code)){$("err").textContent="Enter the 4-digit room code.";return}
+ $("connect").disabled=true;$("err").textContent="Connecting…";
+ // Permission calls happen before awaits/network work so iOS still recognizes the user gesture.
+ await requestSensorAccess();
+ roomApi=await joinRoom(code);
+ if(!roomApi){$("err").textContent="Could not connect to the display. Make sure both devices are online and the room feature is available."; $("connect").disabled=false;return}
+ $("pair").classList.add("hidden");$("pad").classList.remove("hidden");$("err").textContent="";
+ try{roomApi.presence({role:"pad",a:55,n:0})}catch(e){}
+ roomApi.onPeers(()=>{
+  try{
+   const screen=roomApi.peers().find(p=>p.presence.role==="screen");
+   if(screen&&screen.presence.fbn!==lastFeedback){lastFeedback=screen.presence.fbn;if(screen.presence.fb)$("sportName").textContent=screen.presence.fb}
+  }catch(e){}
+ });
+};
+$("tapShoot").onclick=()=>sendShot(20,aim);
+</script>
+</body>
+</html>
