@@ -95,6 +95,7 @@ p{color:var(--muted);line-height:1.5}
   </div>
 </section>
 
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -122,14 +123,53 @@ $("asDisplay").onclick=()=>{show("display");setupDisplay()};
 $("asController").onclick=()=>show("controller");
 $("backHome").onclick=()=>show("home");
 
-async function joinRoom(code){
- try{
-  if(window.claude&&typeof window.claude.use==="function"){
-   const api=await window.claude.use("room");
-   if(api){await api.join("motionsports-"+code);return api;}
-  }
- }catch(e){console.warn("Room connection:",e)}
- return null;
+async function joinRoom(code,role){
+ if(typeof Peer==="undefined")throw new Error("PeerJS could not load. Check your internet connection and reload.");
+ const peerId="motionsports-"+code+"-screen";
+ const peer=role==="screen"?new Peer(peerId):new Peer();
+ await new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>reject(new Error("Connection setup timed out.")),12000);
+  peer.once("open",()=>{clearTimeout(timer);resolve()});
+  peer.once("error",e=>{clearTimeout(timer);reject(e)});
+ });
+ let ownPresence={role};
+ const remote=new Map(),listeners=new Set(),connections=new Set();
+ const notify=()=>listeners.forEach(fn=>{try{fn()}catch(e){console.warn(e)}});
+ const receive=(conn)=>{
+  if(connections.has(conn))return;
+  connections.add(conn);
+  const key=conn.peer;
+  conn.on("data",data=>{
+   if(!data||data.type!=="presence"||!data.presence)return;
+   remote.set(key,{presence:data.presence,updatedAt:Date.now()});
+   notify();
+  });
+  conn.on("open",()=>{
+   if(ownPresence)conn.send({type:"presence",presence:ownPresence});
+  });
+  conn.on("close",()=>{connections.delete(conn);remote.delete(key);notify()});
+  conn.on("error",e=>console.warn("Peer connection:",e));
+ };
+ const api={
+  presence(state){
+   ownPresence={...ownPresence,...state};
+   for(const conn of connections)if(conn.open)try{conn.send({type:"presence",presence:ownPresence})}catch(e){console.warn(e)}
+  },
+  onPeers(fn){listeners.add(fn);return()=>listeners.delete(fn)},
+  peers(){return [...remote.entries()].map(([id,v])=>({id,presence:v.presence,updatedAt:v.updatedAt}))}
+ };
+ if(role==="screen"){
+  peer.on("connection",receive);
+ }else{
+  const conn=peer.connect(peerId,{reliable:true});
+  await new Promise((resolve,reject)=>{
+   const timer=setTimeout(()=>reject(new Error("Could not find that room. Check the code and try again.")),15000);
+   conn.once("open",()=>{clearTimeout(timer);receive(conn);resolve()});
+   conn.once("error",e=>{clearTimeout(timer);reject(e)});
+   peer.once("error",e=>{clearTimeout(timer);reject(e)});
+  });
+ }
+ return api;
 }
 function setupDisplay(){
  screenCode=String(1000+Math.floor(Math.random()*9000));
@@ -149,7 +189,7 @@ $("startGame").onclick=async()=>{
  score=0;attempts=10;gameOver=false;ball=freshBall();aim=SPORTS[selectedSport].aim;gameStarted=true;
  $("hudSport").textContent=SPORTS[selectedSport].emoji+" "+SPORTS[selectedSport].name;
  updateHud();show("display");
- roomApi=await joinRoom(screenCode);
+ try{roomApi=await joinRoom(screenCode,"screen")}catch(e){console.warn("Room setup:",e);showNotice("Room setup failed · "+(e.message||"Try again"),4);startLoop();return;}
  if(!roomApi)showNotice("Local play ready · room connection unavailable",3);
  else{
   try{
@@ -261,27 +301,20 @@ addEventListener("keydown",e=>{if(e.code==="Space"){e.preventDefault();shoot(.6,
 // Phone controller: request iOS permissions directly inside the Connect button gesture.
 function setSensorStatus(text){$("sensorStatus").textContent=text}
 async function requestSensorAccess(){
- let motionOK=false,orientationOK=false,errors=[];
- if(!window.isSecureContext)errors.push("Sensors need HTTPS.");
- if(typeof DeviceMotionEvent==="undefined"&&typeof DeviceOrientationEvent==="undefined")errors.push("This browser does not support motion sensors.");
- if(typeof DeviceMotionEvent!=="undefined"){
-  if(typeof DeviceMotionEvent.requestPermission==="function"){
-   try{motionOK=(await DeviceMotionEvent.requestPermission())==="granted";if(!motionOK)errors.push("Motion permission was denied.");}
-   catch(e){errors.push("Motion permission request failed: "+(e.message||"unknown error"))}
-  }else motionOK=true;
- }
- if(typeof DeviceOrientationEvent!=="undefined"){
-  if(typeof DeviceOrientationEvent.requestPermission==="function"){
-   try{orientationOK=(await DeviceOrientationEvent.requestPermission())==="granted";if(!orientationOK)errors.push("Tilt permission was denied.");}
-   catch(e){errors.push("Tilt permission request failed: "+(e.message||"unknown error"))}
-  }else orientationOK=true;
- }
+ let motionOK=false,orientationOK=false;
+ if(!window.isSecureContext)setSensorStatus("This page needs HTTPS for motion controls. Tap-to-play will still work.");
+ const motionRequest=typeof DeviceMotionEvent!=="undefined"&&typeof DeviceMotionEvent.requestPermission==="function"
+  ?DeviceMotionEvent.requestPermission().catch(e=>{console.warn("Motion permission:",e);return "denied"}):Promise.resolve(typeof DeviceMotionEvent!=="undefined"?"granted":"denied");
+ const orientationRequest=typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function"
+  ?DeviceOrientationEvent.requestPermission().catch(e=>{console.warn("Tilt permission:",e);return "denied"}):Promise.resolve(typeof DeviceOrientationEvent!=="undefined"?"granted":"denied");
+ const [motionResult,orientationResult]=await Promise.all([motionRequest,orientationRequest]);
+ motionOK=motionResult==="granted";orientationOK=orientationResult==="granted";
  motionEnabled=motionOK;orientationEnabled=orientationOK;
  if(orientationEnabled)addEventListener("deviceorientation",onOrientation,{passive:true});
  if(motionEnabled)addEventListener("devicemotion",onMotion,{passive:true});
  if(motionEnabled&&orientationEnabled){sensorState="ready";setSensorStatus("✓ Motion controls ready. Tilt and flick to play.");}
  else if(motionEnabled||orientationEnabled){sensorState="partial";setSensorStatus("Some sensors are unavailable. Tap-to-play is always available.");}
- else{sensorState="denied";setSensorStatus("Motion access is off. Use the TAP TO PLAY button, or enable Motion & Orientation Access in iPhone Settings → Safari.");}
+ else{sensorState="denied";setSensorStatus("Motion access is off. Tap-to-play still works. On iPhone, check Settings → Safari → Motion & Orientation Access.");}
 }
 function onOrientation(e){
  if(e.beta==null||!Number.isFinite(e.beta))return;
@@ -310,14 +343,17 @@ $("connect").onclick=async()=>{
  $("connect").disabled=true;$("err").textContent="Connecting…";
  // Permission calls happen before awaits/network work so iOS still recognizes the user gesture.
  await requestSensorAccess();
- roomApi=await joinRoom(code);
+ try{roomApi=await joinRoom(code,"pad")}catch(e){console.warn("Room connection:",e);$("err").textContent=e.message||"Could not connect. Check the room code and internet.";$("connect").disabled=false;return;}
  if(!roomApi){$("err").textContent="Could not connect to the display. Make sure both devices are online and the room feature is available."; $("connect").disabled=false;return}
  $("pair").classList.add("hidden");$("pad").classList.remove("hidden");$("err").textContent="";
  try{roomApi.presence({role:"pad",a:55,n:0})}catch(e){}
  roomApi.onPeers(()=>{
   try{
    const screen=roomApi.peers().find(p=>p.presence.role==="screen");
-   if(screen&&screen.presence.fbn!==lastFeedback){lastFeedback=screen.presence.fbn;if(screen.presence.fb)$("sportName").textContent=screen.presence.fb}
+   if(screen){
+    if(screen.presence.sport&&SPORTS[screen.presence.sport]){selectedSport=screen.presence.sport;$("sportName").textContent=SPORTS[selectedSport].emoji+" "+SPORTS[selectedSport].name;}
+    if(screen.presence.fbn!==lastFeedback){lastFeedback=screen.presence.fbn;if(screen.presence.fb)$("sportName").textContent=screen.presence.fb;}
+   }
   }catch(e){}
  });
 };
