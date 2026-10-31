@@ -87,6 +87,7 @@ p{color:var(--muted);line-height:1.5}
         <button class="sport" data-sport="volleyball"><span>🏐</span>Volleyball</button>
         <button class="sport" data-sport="bowling"><span>🎳</span>Bowling</button>
         <button class="sport" data-sport="badminton"><span>🏸</span>Badminton</button>
+        <button class="sport" data-sport="driving"><span>🏎️</span>Driving</button>
       </div>
       <button id="startGame">Start game</button>
       <p class="small">Open this same page on your phone and choose Controller.</p>
@@ -105,11 +106,13 @@ const SPORTS={
  tennis:{name:"Tennis",emoji:"🎾",target:"court",color:"#c9ed48",aim:48},
  volleyball:{name:"Volleyball",emoji:"🏐",target:"net",color:"#f5e6bd",aim:55},
  bowling:{name:"Bowling",emoji:"🎳",target:"pins",color:"#e7eaf3",aim:50},
- badminton:{name:"Badminton",emoji:"🏸",target:"net",color:"#f8f5e8",aim:50}
+ badminton:{name:"Badminton",emoji:"🏸",target:"net",color:"#f8f5e8",aim:50},
+ driving:{name:"Driving",emoji:"🏎️",target:"road",color:"#ef554b",aim:50}
 };
 let selectedSport="basketball",roomApi=null,screenCode="",gameStarted=false;
 let score=0,attempts=10,best=0,ball=null,gameOver=false,noticeTimer=0,message="",aim=55;
 let sensorState="not-started",motionEnabled=false,orientationEnabled=false;
+let car={lane:0,speed:0,boost:0,distance:0,obstacles:[],spawn:0,invulnerable:0,lives:3};
 let beta=50,gestureStart=0,peakMotion=0,cooldown=0,shotCount=0,lastSend=0,lastFeedback=null;
 const freshBall=()=>({active:false,x:.8,y:1.5,vx:0,vy:0,t:0,scored:false});
 ball=freshBall();
@@ -186,7 +189,7 @@ $("sports").addEventListener("click",e=>{
 $("startGame").onclick=async()=>{
  $("displaySetup").classList.add("hidden");
  $("roomLabel").textContent="ROOM "+screenCode+"  ·  "+SPORTS[selectedSport].name;
- score=0;attempts=10;gameOver=false;ball=freshBall();aim=SPORTS[selectedSport].aim;gameStarted=true;
+ score=0;attempts=10;gameOver=false;ball=freshBall();aim=SPORTS[selectedSport].aim;car={lane:0,speed:0,boost:0,distance:0,obstacles:[],spawn:0,invulnerable:0,lives:3};gameStarted=true;
  $("hudSport").textContent=SPORTS[selectedSport].emoji+" "+SPORTS[selectedSport].name;
  updateHud();show("display");
  try{roomApi=await joinRoom(screenCode,"screen")}catch(e){console.warn("Room setup:",e);showNotice("Room setup failed · "+(e.message||"Try again"),4);startLoop();return;}
@@ -199,11 +202,10 @@ $("startGame").onclick=async()=>{
      const phone=roomApi.peers().filter(p=>p.presence.role==="pad").sort((a,b)=>b.updatedAt-a.updatedAt)[0];
      if(!phone)return;
      const state=phone.presence;
-     if(state.sport&&state.sport!==selectedSport)return;
      if(typeof state.a==="number")aim=clamp(state.a,25,75);
      if(typeof state.n==="number"&&state.n>shotCount){
       shotCount=state.n;
-      shoot(state.p,state.sa);
+      if(selectedSport==="driving")car.boost=1.5;else shoot(state.p,state.sa);
      }
     }catch(e){console.warn("Controller update:",e)}
    });
@@ -211,7 +213,7 @@ $("startGame").onclick=async()=>{
  }
  startLoop();
 };
-function updateHud(){$("hudScore").textContent="Score "+score;$("hudShots").textContent="Attempts "+attempts}
+function updateHud(){if(selectedSport==="driving"){$("hudScore").textContent="Distance "+Math.floor(car.distance)+" m";$("hudShots").textContent="Lives "+car.lives;}else{$("hudScore").textContent="Score "+score;$("hudShots").textContent="Attempts "+attempts;}}
 function showNotice(t,secs=2){message=t;noticeTimer=secs;$("notice").textContent=t}
 function sendFeedback(t){showNotice(t,2);if(roomApi)try{roomApi.presence({role:"screen",fb:t,fbn:Date.now(),score,attempts,sport:selectedSport})}catch(e){}}
 
@@ -226,6 +228,7 @@ function shoot(power,angleValue){
  attempts--;updateHud();
 }
 function updateBall(dt){
+ if(selectedSport==="driving"){updateDriving(dt);return;}
  if(!ball.active)return;
  const oldY=ball.y;
  const gravity=selectedSport==="volleyball"?8.8:10.5;
@@ -289,14 +292,51 @@ function drawBall(w,h){
  ctx.strokeStyle="rgba(255,255,255,.7)";ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,r*.72,-1.2,1.2);ctx.stroke();ctx.restore();
 }
 function render(){
- const w=innerWidth,h=innerHeight;drawCourt(w,h);drawTarget(w,h);drawPlayer(w,h);drawBall(w,h);
+ const w=innerWidth,h=innerHeight;
+ if(selectedSport==="driving"){drawDriving(w,h);return;}
+ drawCourt(w,h);drawTarget(w,h);drawPlayer(w,h);drawBall(w,h);
+}
+function updateDriving(dt){
+ if(gameOver)return;
+ const steering=clamp((aim-50)/25,-1,1);
+ car.lane=clamp(car.lane+steering*dt*1.9,-1,1);
+ car.speed=Math.min(27,car.speed+dt*(car.boost>0?24:10));
+ if(car.boost>0)car.boost=Math.max(0,car.boost-dt);
+ if(car.invulnerable>0)car.invulnerable-=dt;
+ car.distance+=car.speed*dt*1.6;
+ car.spawn-=dt;
+ if(car.spawn<=0){car.obstacles.push({lane:(Math.random()*3|0)-1,z:1});car.spawn=Math.max(.48,1.35-car.speed*.025);}
+ for(const o of car.obstacles)o.z-=dt*(.42+car.speed*.018);
+ for(const o of car.obstacles){
+  if(!o.hit&&o.z<.16&&o.z>-.02&&Math.abs(o.lane-car.lane)<.58){
+   o.hit=true;if(car.invulnerable<=0){car.lives--;car.invulnerable=1.2;car.speed=Math.max(5,car.speed*.45);showNotice("CRASH! Watch the road!",1.2);if(car.lives<=0){gameOver=true;showNotice("RACE OVER · "+Math.floor(car.distance)+" m · Tap to restart",5);}}
+  }
+ }
+ car.obstacles=car.obstacles.filter(o=>o.z>-.15);
+ score=Math.floor(car.distance);attempts=car.lives;updateHud();
+}
+function drawDriving(w,h){
+ const sky=ctx.createLinearGradient(0,0,0,h);sky.addColorStop(0,"#72c7ed");sky.addColorStop(.48,"#d8edf2");sky.addColorStop(.49,"#27664c");sky.addColorStop(1,"#153b35");ctx.fillStyle=sky;ctx.fillRect(0,0,w,h);
+ ctx.fillStyle="#303844";ctx.beginPath();ctx.moveTo(w*.39,h*.38);ctx.lineTo(w*.61,h*.38);ctx.lineTo(w*.98,h);ctx.lineTo(w*.02,h);ctx.closePath();ctx.fill();
+ ctx.strokeStyle="#f7f2d8";ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(w*.39,h*.38);ctx.lineTo(w*.02,h);ctx.moveTo(w*.61,h*.38);ctx.lineTo(w*.98,h);ctx.stroke();
+ const offset=(car.distance*2)%1;
+ for(let lane=1;lane<=2;lane++){const x=w*(.39+lane*.073);for(let i=0;i<7;i++){const z=(i/7+offset/7)%1;const y=h*(.4+z*.59);const width=w*(.002+z*.004);ctx.fillStyle="#f4f1d6";ctx.fillRect(x-w*.01-z*w*.06,y,width*2,h*(.012+z*.018));}}
+ for(let i=0;i<9;i++){const y=h*(.42+((i/9+offset/9)%1)*.55),scale=(y/h)*.7+.2;for(const side of [-1,1]){const x=w*(.5+side*(.13+scale*.35));ctx.fillStyle="#17513d";ctx.beginPath();ctx.arc(x,y,w*.025*scale,0,Math.PI*2);ctx.fill();ctx.fillStyle="#76503a";ctx.fillRect(x-w*.004*scale,y,w*.008*scale,h*.035*scale);}}
+ for(const o of car.obstacles){const z=clamp(1-o.z,0,1),x=w*(.5+o.lane*.13*(.35+z*.65)),y=h*(.4+z*.53),size=w*(.025+z*.04);ctx.fillStyle="#ffb33e";roundedRect(x-size,y-size*1.4,size*2,size*2.4,size*.3);ctx.fill();ctx.fillStyle="#bde8f3";ctx.fillRect(x-size*.65,y-size,size*1.3,size*.45);ctx.fillStyle="#171c26";ctx.fillRect(x-size*.8,y+size*.7,size*.35,size*.45);ctx.fillRect(x+size*.45,y+size*.7,size*.35,size*.45);}
+ const cx=w*(.5+car.lane*.16),cy=h*.82,cw=Math.min(w*.15,100),ch=cw*.95;
+ ctx.save();if(car.invulnerable>0&&Math.floor(performance.now()/100)%2)ctx.globalAlpha=.35;
+ ctx.fillStyle="#111923";roundedRect(cx-cw*.5,cy-ch*.42,cw,ch*.85,cw*.2);ctx.fill();
+ ctx.fillStyle="#e64c45";roundedRect(cx-cw*.42,cy-ch*.5,cw*.84,ch*.85,cw*.2);ctx.fill();
+ ctx.fillStyle="#a9e2f2";roundedRect(cx-cw*.3,cy-ch*.35,cw*.6,ch*.27,cw*.08);ctx.fill();
+ ctx.fillStyle="#222a34";ctx.fillRect(cx-cw*.47,cy+ch*.16,cw*.94,ch*.14);ctx.restore();
+ ctx.fillStyle="#fff";ctx.font="bold 18px system-ui";ctx.textAlign="center";ctx.fillText("TILT TO STEER · FLICK OR TAP TO BOOST",w/2,h*.95);
 }
 function loop(now){
  if(!gameStarted)return;const dt=Math.min(.04,(now-lastFrame)/1000||0);lastFrame=now;updateBall(dt);if(noticeTimer>0){noticeTimer-=dt;if(noticeTimer<=0)$("notice").textContent=""}render();raf=requestAnimationFrame(loop);
 }
 function startLoop(){cancelAnimationFrame(raf);canvas=$("game");ctx=canvas.getContext("2d");resizeCanvas();lastFrame=performance.now();loop(lastFrame)}
 addEventListener("resize",()=>{if(!$("display").classList.contains("hidden"))resizeCanvas()});
-addEventListener("keydown",e=>{if(e.code==="Space"){e.preventDefault();shoot(.6,aim)}if(e.key==="ArrowUp")aim=clamp(aim+2,25,75);if(e.key==="ArrowDown")aim=clamp(aim-2,25,75)});
+addEventListener("keydown",e=>{if(e.code==="Space"){e.preventDefault();if(selectedSport==="driving")car.boost=1.5;else shoot(.6,aim)}if(e.key==="ArrowLeft")aim=clamp(aim-3,25,75);if(e.key==="ArrowRight")aim=clamp(aim+3,25,75);if(e.key==="ArrowUp"&&selectedSport!=="driving")aim=clamp(aim+2,25,75);if(e.key==="ArrowDown"&&selectedSport!=="driving")aim=clamp(aim-2,25,75)});
 
 // Phone controller: request iOS permissions directly inside the Connect button gesture.
 function setSensorStatus(text){$("sensorStatus").textContent=text}
@@ -334,8 +374,8 @@ function onMotion(e){
 function sendShot(peak,angleValue){
  const power=clamp((peak-8)/30,.15,1);shotCount++;
  if(roomApi)try{roomApi.presence({role:"pad",sa:Math.round(angleValue),p:+power.toFixed(2),n:shotCount,sport:selectedSport})}catch(e){}
- $("tapShoot").textContent="SHOT SENT!";
- setTimeout(()=>{$("tapShoot").textContent="TAP TO PLAY"},650);
+ $("tapShoot").textContent=selectedSport==="driving"?"BOOST!":"SHOT SENT!";
+ setTimeout(()=>{$("tapShoot").textContent=selectedSport==="driving"?"BOOST":"TAP TO PLAY"},650);
 }
 $("connect").onclick=async()=>{
  const code=$("code").value.trim();
