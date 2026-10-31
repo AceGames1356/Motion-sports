@@ -205,7 +205,7 @@ $("startGame").onclick=async()=>{
      if(typeof state.a==="number")aim=clamp(state.a,25,75);
      if(typeof state.n==="number"&&state.n>shotCount){
       shotCount=state.n;
-      if(selectedSport==="driving")car.boost=1.5;else shoot(state.p,state.sa);
+      if(selectedSport==="driving")driveBoost();else shoot(state.p,state.sa);
      }
     }catch(e){console.warn("Controller update:",e)}
    });
@@ -215,6 +215,10 @@ $("startGame").onclick=async()=>{
 };
 function updateHud(){if(selectedSport==="driving"){$("hudScore").textContent="Distance "+Math.floor(car.distance)+" m";$("hudShots").textContent="Lives "+car.lives;}else{$("hudScore").textContent="Score "+score;$("hudShots").textContent="Attempts "+attempts;}}
 function showNotice(t,secs=2){message=t;noticeTimer=secs;$("notice").textContent=t}
+function driveBoost(){
+ if(gameOver){car={lane:0,speed:0,boost:0,distance:0,obstacles:[],spawn:0,invulnerable:0,lives:3};gameOver=false;score=0;attempts=3;updateHud();sendFeedback("NEW RACE!");}
+ car.boost=1.5;
+}
 function sendFeedback(t){showNotice(t,2);if(roomApi)try{roomApi.presence({role:"screen",fb:t,fbn:Date.now(),score,attempts,sport:selectedSport})}catch(e){}}
 
 function shoot(power,angleValue){
@@ -336,7 +340,7 @@ function loop(now){
 }
 function startLoop(){cancelAnimationFrame(raf);canvas=$("game");ctx=canvas.getContext("2d");resizeCanvas();lastFrame=performance.now();loop(lastFrame)}
 addEventListener("resize",()=>{if(!$("display").classList.contains("hidden"))resizeCanvas()});
-addEventListener("keydown",e=>{if(e.code==="Space"){e.preventDefault();if(selectedSport==="driving")car.boost=1.5;else shoot(.6,aim)}if(e.key==="ArrowLeft")aim=clamp(aim-3,25,75);if(e.key==="ArrowRight")aim=clamp(aim+3,25,75);if(e.key==="ArrowUp"&&selectedSport!=="driving")aim=clamp(aim+2,25,75);if(e.key==="ArrowDown"&&selectedSport!=="driving")aim=clamp(aim-2,25,75)});
+addEventListener("keydown",e=>{if(e.code==="Space"){e.preventDefault();if(selectedSport==="driving")driveBoost();else shoot(.6,aim)}if(e.key==="ArrowLeft")aim=clamp(aim-3,25,75);if(e.key==="ArrowRight")aim=clamp(aim+3,25,75);if(e.key==="ArrowUp"&&selectedSport!=="driving")aim=clamp(aim+2,25,75);if(e.key==="ArrowDown"&&selectedSport!=="driving")aim=clamp(aim-2,25,75)});
 
 // Phone controller: request iOS permissions directly inside the Connect button gesture.
 function setSensorStatus(text){$("sensorStatus").textContent=text}
